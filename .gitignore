@@ -27,7 +27,7 @@ projects/.pytest_cache/
 myenv/
 .venv/
 .coverage
-instance/
+
 
 # Logs and databases #
 ######################
