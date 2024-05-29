@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Forum</title>
-    {% if request.path == '/' %}
+    {% if request.path == '/' and visited != "true"%}
     <link rel="stylesheet" href="../static/styles3.css">
     {% endif %}
     <Link rel="preconnect" href="https://fonts.gstatis.com">
@@ -20,7 +20,7 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
-    {% if request.path == '/' %}
+    {% if request.path == '/' and visited != "true"%}
     <div class="intro">
         <h1 class="logo-header"> 
             <span class="logo">
@@ -54,7 +54,7 @@
 
                     {% if current_user.is_authenticated and current_user.id != 1%} 
                     <a class="navbar-item" href="{{ url_for('main.update', id = current_user.id) }}">Update</a>
-                    <a class="navbar-item" href="{{ url_for('main.profile') }}">{{user.name}}</a>
+                    <a class="navbar-item" href="{{ url_for('main.profile') }}">{{current_user.name}}</a>
                     <a class="navbar-item" href="{{ url_for('auth.logout') }}">Log Out</a>
                     
                     

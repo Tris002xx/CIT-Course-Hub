@@ -1,31 +1,90 @@
-from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify
+from flask import Blueprint, render_template, redirect, url_for, request, flash, jsonify, session
 from flask_login import login_required, current_user 
 from app.db import db
-from app.main.models import User, Thread, Comment, Subheading, Form, User_Thread_Upvotes
+from app.main.models import (
+    User,
+    Thread,
+    Comment,
+    Subheading,
+    Form,
+    User_Thread_Downvotes,
+    User_Thread_Upvotes,
+)
 from datetime import datetime
 from wtforms import TextAreaField
 from flask_wtf import FlaskForm
 from wtforms.validators import DataRequired
+from werkzeug.utils import secure_filename
+import uuid as uuid
+import os
 main = Blueprint('main', __name__)  # Create a Blueprint object named 'main'
 
 # Main Routes
 
-@main.route('/')  # Route decorator for the index route
+@main.route("/")  # Route decorator for the index route
 def index():
-    statement = db.select(Subheading).order_by(Subheading.id)  # Query the database to get all subheadings and order them by id
-    results = list(db.session.execute(statement).scalars())  # Execute the query and convert the results to a list
+    try:
+        if session["visited"] == "true":
+            visited = "true"
+    except KeyError:
+        session["visited"] = "true"
+        visited = "false"
+    statement = db.select(Subheading).order_by(
+        Subheading.id
+    )  # Query the database to get all subheadings and order them by id
+    results = list(
+        db.session.execute(statement).scalars()
+    )  # Execute the query and convert the results to a list
     for subheading in results:  # Iterate over each subheading
         for thread in subheading.threads:  # Iterate over each thread in the subheading
-            thread.count = db.session.query(Comment).filter(Comment.thread_id == thread.id).count()  # Count the number of comments for each thread
+            thread.count = (
+                db.session.query(Comment).filter(Comment.thread_id == thread.id).count()
+            )  # Count the number of comments for each thread
             try:
-                thread.upvotes = db.session.query(User_Thread_Upvotes).filter(User_Thread_Upvotes.thread_id == thread.id).count()  # Count the number of upvotes for each thread
-                thread.upvoted = db.session.query(User_Thread_Upvotes).filter(User_Thread_Upvotes.thread_id == thread.id).filter(User_Thread_Upvotes.user_id == current_user.id).count()  # Check if the current user has upvoted the thread
+                thread.upvotes = (
+                    db.session.query(User_Thread_Upvotes)
+                    .filter(User_Thread_Upvotes.thread_id == thread.id)
+                    .count()
+                )  # Count the number of upvotes for each thread
+                thread.upvoted = (
+                    db.session.query(User_Thread_Upvotes)
+                    .filter(User_Thread_Upvotes.thread_id == thread.id)
+                    .filter(User_Thread_Upvotes.user_id == current_user.id)
+                    .count()
+                )  # Check if the current user has upvoted the thread
             except:
-                thread.upvotes = db.session.query(User_Thread_Upvotes).filter(User_Thread_Upvotes.thread_id == thread.id).count()  # Count the number of upvotes for each thread
+                thread.upvotes = (
+                    db.session.query(User_Thread_Upvotes)
+                    .filter(User_Thread_Upvotes.thread_id == thread.id)
+                    .count()
+                )  # Count the number of upvotes for each thread
+
+            try:
+                thread.downvotes = (
+                    db.session.query(User_Thread_Downvotes)
+                    .filter(User_Thread_Downvotes.thread_id == thread.id)
+                    .count()
+                )  # Count the number of downvotes for each thread
+                thread.downvoted = (
+                    db.session.query(User_Thread_Downvotes)
+                    .filter(User_Thread_Downvotes.thread_id == thread.id)
+                    .filter(User_Thread_Downvotes.user_id == current_user.id)
+                    .count()
+                )  # Check if the current user has downvoted the thread
+            except:
+                thread.downvotes = (
+                    db.session.query(User_Thread_Downvotes)
+                    .filter(User_Thread_Downvotes.thread_id == thread.id)
+                    .count()
+                )  # Count the number of downvotes for each thread
     try:
-        return render_template('index.html', subheadings=results, user=current_user)  # Render the index.html template with the subheadings and current user
+        return render_template(
+            "index.html", subheadings=results, user=current_user, visited=visited
+        )  # Render the index.html template with the subheadings and current user
     except AttributeError:
-        return render_template('index.html', subheadings=results)  # If there is no current user, render the index.html template without the user
+        return render_template(
+            "index.html", subheadings=results, visited=visited
+        )  # If there is no current user, render the index.html template without the user
 
 @main.route('/profile')  # Route decorator for the profile route
 @login_required  # Require login to access the profile route
@@ -34,28 +93,36 @@ def profile():
     # posts = len(list(db.session.execute(stmt).scalars()))
     posts = len(list(current_user.threads))
     comments = len(list(current_user.comments))
-    
-
-    
     return render_template('/auth/profile.html', user=current_user, posts=posts, comments=comments)  # Render the profile.html template with the current user
 
 @main.route('/thread_detailed/<int:thread_id>')  # Route decorator for the thread_detailed route
 def thread_detailed(thread_id):
     thread = db.get_or_404(Thread, thread_id)  # Get the thread with the specified thread_id from the database
     thread.count = db.session.query(Comment).filter(Comment.thread_id == thread.id).count()  # Count the number of comments for the thread
-    try:
-        if int(thread.author.id) == int(current_user.id):  # Check if the current user is the author of the thread
-            return render_template("thread_detailed.html", thread=thread, user=current_user, edit=False, own=True)  # Render the thread_detailed.html template with the thread, current user, and edit and own flags
-        else:
-            return render_template("thread_detailed.html", thread=thread, user=current_user, edit=False, own=False)  # Render the thread_detailed.html template with the thread, current user, and edit and own flags
-    except:
-        return render_template("thread_detailed.html", thread=thread, user=current_user, edit=False, own=False)  # Render the thread_detailed.html template with the thread, current user, and edit and own flags
+    # try:
+    #     if int(thread.author.id) == int(current_user.id):  # Check if the current user is the author of the thread
+    #         return render_template("thread_detailed.html", thread=thread, user=current_user, edit=False, own=True)  # Render the thread_detailed.html template with the thread, current user, and edit and own flags
+    #     else:
+    #         return render_template("thread_detailed.html", thread=thread, user=current_user, edit=False, own=False)  # Render the thread_detailed.html template with the thread, current user, and edit and own flags
+    # except:
+    #     return render_template("thread_detailed.html", thread=thread, user=current_user, edit=False, own=False)  # Render the thread_detailed.html template with the thread, current user, and edit and own flags
+    if current_user.is_authenticated:
+        # if using login account, allow to have ability to edit thread and comment (Just ability, specifically when they can use will be on different function)
+        return render_template("thread_detailed.html", thread=thread, edit=False, edit_comment_id = None)
+    else:
+        # if not login, just be able to access to thread_detailed.html
+        return render_template("thread_detailed.html", thread=thread)
 
 @main.route('/thread_detailed/edit/<int:thread_id>')  # Route decorator for the thread_edit route
 def thread_edit(thread_id):
     thread = db.get_or_404(Thread, thread_id)  # Get the thread with the specified thread_id from the database
-    thread.count = db.session.query(Comment).filter(Comment.thread_id == thread.id).count()  # Count the number of comments for the thread
-    return render_template("thread_detailed.html", thread=thread, user=current_user, edit=True)  # Render the thread_detailed.html template with the thread, current user, and edit flag
+    if current_user.id == thread.author.id:
+        # if users own that thread, allow edit
+        thread.count = db.session.query(Comment).filter(Comment.thread_id == thread.id).count()  # Count the number of comments for the thread
+        return render_template("thread_detailed.html", thread=thread, user=current_user, edit=True, edit_comment_id=None)  # Render the thread_detailed.html template with the thread, current user, and edit flag
+    else:
+        # if not own thread, just allow to see as non-login user, redirect to thread_detailed.html
+        return redirect(url_for("main.thread_detailed", thread_id=thread.id))
 
 @main.route('/add')  # Route decorator for the add_page route
 def add_page():
@@ -150,24 +217,105 @@ def update(id):
     else:
         return render_template("update.html", form=form, form_two=form_two, name_to_update=name_to_update, id=id, user=current_user)  # Render the update.html template with the form, name_to_update, id, and current user
 
-@main.route('/upvote', methods=['POST'])  # Route decorator for the upvote route
+@main.route("/upvote", methods=["POST"])  # Route decorator for the upvote route
+@login_required
 def upvote():
     data = request.get_json()
-    thread_id = data.get('thread_id')
+    thread_id = data.get("thread_id")
     if thread_id:
-        stmt = db.select(User_Thread_Upvotes).where(User_Thread_Upvotes.thread_id == thread_id).where(User_Thread_Upvotes.user_id == current_user.id)  # Check if the current user has upvoted the thread
+        stmt = (
+            db.select(User_Thread_Upvotes)
+            .where(User_Thread_Upvotes.thread_id == thread_id)
+            .where(User_Thread_Upvotes.user_id == current_user.id)
+        )  # Check if the current user has upvoted the thread
         result = db.session.execute(stmt).scalar()
         if result is None:
-            db.session.add(User_Thread_Upvotes(thread_id=thread_id, user_id=current_user.id))  # Add upvote to the thread
+            db.session.add(
+                User_Thread_Upvotes(thread_id=thread_id, user_id=current_user.id)
+            )  # Add upvote to the thread
             db.session.commit()
         else:
             db.session.delete(result)  # Remove upvote from the thread
             db.session.commit()
-        
-        statement = db.select(User_Thread_Upvotes).where(User_Thread_Upvotes.thread_id == thread_id)  # Query the database to get all upvotes for the thread
-        resultt = db.session.execute(statement).scalars()
-        count = len(list(resultt))  # Count the number of upvotes
-        return jsonify({'status': 'success', "upvotes": count})  # Return success status and the number of upvotes
+
+        statement = db.select(User_Thread_Upvotes).where(
+            User_Thread_Upvotes.thread_id == thread_id
+        )  # Query the database to get all upvotes for the thread
+        result = db.session.execute(statement).scalars()
+        count = len(list(result))  # Count the number of upvotes
+        return jsonify(
+            {"status": "success", "upvotes": count}
+        )  # Return success status and the number of upvotes
     else:
-        return jsonify({'status': 'error', 'message': 'No thread_id provided'}), 400  # Return error status if no thread_id is provided
+        return (
+            jsonify({"status": "error", "message": "No thread_id provided"}),
+            400,
+        )  # Return error status if no thread_id is provided
+
+
+@main.route("/downvote", methods=["POST"])  # Route decorator for the downvote route
+@login_required
+def downvote():
+    data = request.get_json()
+    thread_id = data.get("thread_id")
+    if thread_id:
+        stmt = (
+            db.select(User_Thread_Downvotes)
+            .where(User_Thread_Downvotes.thread_id == thread_id)
+            .where(User_Thread_Downvotes.user_id == current_user.id)
+        )  # Check if the current user has downvoted the thread
+        result = db.session.execute(stmt).scalar()
+        if result is None:
+            db.session.add(
+                User_Thread_Downvotes(thread_id=thread_id, user_id=current_user.id)
+            )  # Add down to the thread
+            db.session.commit()
+        else:
+            db.session.delete(result)  # Remove downvote from the thread
+            db.session.commit()
+
+        statement = db.select(User_Thread_Downvotes).where(
+            User_Thread_Downvotes.thread_id == thread_id
+        )  # Query the database to get all downvotes for the thread
+        result = db.session.execute(statement).scalars()
+        count = len(list(result))  # Count the number of downvotes
+        return jsonify(
+            {"status": "success", "downvotes": count}
+        )  # Return success status and the number of downvotes
+    else:
+        return (
+            jsonify({"status": "error", "message": "No thread_id provided"}),
+            400,
+        )  # Return error status if no thread_id is provided
+
+
+@main.route("/comment_reply/<int:comment_id>", methods=["POST"])  # Route decorator for the add_reply route
+def add_reply(comment_id):
+    parent_comment = db.get_or_404(Comment, comment_id)  # Get the parent comment with the specified comment_id from the database
+    if request.form["content"] != "":  # Check if the content field is not empty
+        try:
+            user = db.get_or_404(User, current_user.id)  # Check if there is a current user
+            db.session.add(Comment(author=user, thread=parent_comment.thread, content=request.form["content"], parent_id=parent_comment.id))  # Create a new reply with the author, thread, content, and parent_id
+        except AttributeError:
+            db.session.add(Comment(thread=parent_comment.thread, content=request.form["content"], parent_id=parent_comment.id))  # Create a new reply with the thread, content, and parent_id
+        db.session.commit()  # Commit the changes to the database
+    return redirect(url_for('main.thread_detailed', thread_id=parent_comment.thread.id)) # redirect to thread_detailed.html
+
+    
+@main.route('/edit/<int:comment_id>')  # Route decorator for the comment_edit route
+def comment_edit(comment_id):
+    comment = db.get_or_404(Comment, comment_id)  # Get the comment with the specified comment_id from the database
+    comment.count = db.session.query(Comment).filter(Comment.parent_id == comment.id).count()  # Count the number of replies for the comment
+    thread = comment.thread  # Get the thread that the comment belongs to
+    thread.count = db.session.query(Comment).filter(Comment.thread_id == thread.id).count()  # Count the number of comments for the thread
+    return render_template("thread_detailed.html", thread=thread, comment=comment, user=current_user, edit_comment_id=comment_id)  # Render the thread_detailed.html template with the thread, comment, current user, and edit flag
+
+@main.route("/update/<int:comment_id>", methods=["POST"])  # Route decorator for the comment_update route
+def comment_update(comment_id):
+    comment = db.get_or_404(Comment, comment_id)  # Get the comment with the specified comment_id from the database
+    if request.form["content"] == "":  # Check if the content field is not empty
+        return redirect(url_for('main.thread_detailed', thread_id=comment.thread.id))  # Redirect to the thread_detailed route
+    comment.content = request.form["content"]  # Update the content of the comment
+    db.session.commit()  # Commit the changes to the database
+    return redirect(url_for('main.thread_detailed', thread_id=comment.thread.id))  # Redirect to the thread_detailed route
 

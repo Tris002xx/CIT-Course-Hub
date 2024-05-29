@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, session
 from flask_login import LoginManager
 from app.db import db
 # from apps.manage import run
@@ -8,6 +8,7 @@ def create_app():
     app = Flask(__name__)
     
     app.config.from_object('config.DevelopmentConfig')
+    app.secret_key = 'BAD_SECRET_KEY'
     db.init_app(app)
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login'
